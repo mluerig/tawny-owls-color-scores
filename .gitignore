@@ -1,0 +1,5 @@
+# Exclude all files in figures folder
+figures/*
+
+# Exclude all files in tables folder
+tables/*
