@@ -1,27 +1,41 @@
-# ACCESS INFORMATION
+# Morph-specific selection pressures drive phenotypic divergence in a color polymorphic bird
 
-## 1. Licenses/restrictions placed on the data or code
+## Overview
 
-Creative Commons Attribution 4.0 International
+This repository contains data and code for the analysis of plumage color scores from a Finnish population of tawny owls (*Strix aluco*). 
 
-## DATA & CODE FILE OVERVIEW
+## Citation
 
-This data repository consist of two data files, one code script, and this README document
+Passarotto, A., Lürig, M. D., Aaltonen, E., & Karell, P. (2024). Morph-specific selection pressures drive phenotypic divergence in a color polymorphic bird. *bioRxiv*. https://doi.org/10.1101/2024.10.18.619091
 
-## Data files
+## License
 
-1. data_individuals.csv
--> contains records for breeding individuals in long-format 
+Creative Commons Attribution 4.0 International (CC BY 4.0)
 
-2. data_recruits.csv: background darkness of the collected substrates
--> contains records for recruits in long-format, along with parental information
+## Repository Contents
 
+This data repository consists of two data files, one analysis script, and this README document.
 
-## Code scripts and workflow
+### Data Files
 
-1. run the script analysis.R from top to bottom to reproduce all results, including figures (except figure 1A, S1, and S3) and tables.
+1. **data_individuals.csv**
+   - Contains records for breeding individuals in long-format
+   - Includes plumage color scores and associated breeding data
 
-# SOFTWARE VERSIONS
+2. **data_recruits.csv**
+   - Contains records for recruits in long-format
+   - Includes parental information for analysis of inheritance patterns
+
+### Analysis Script
+
+**analysis.R**
+   - Run this script from top to bottom to reproduce all results and figures (except Figure 1A and S1)
+   - Output tables are saved in the `tables/` directory, figures are saved in the `figures/` directory
+
+## Requirements
+
+### Software 
+
 > sessionInfo()
 R version 4.4.2 (2024-10-31 ucrt)
 Platform: x86_64-w64-mingw32/x64

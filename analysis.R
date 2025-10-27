@@ -14,7 +14,7 @@ pkgs<-c(
   "flextable","YesSiR", 
   "plot3Drgl", "rgl",
   "stringr",
-  "marginaleffects",
+  "marginaleffects"
 )
 pacman::p_load(char=pkgs,install=F)
 rm(pkgs)
@@ -30,6 +30,8 @@ outlier_mad <- function(x, threshold = 3) {
   mad_deviate <- (x - stats::median(x, na.rm = T)) / stats::mad(x, na.rm = T)
   abs(mad_deviate) > threshold
 }
+
+setwd("D:/git-repos/data-repos/tawny-owls-color-scores")
 
 # 01 - define variables ---------------------------------------------------
 
@@ -1042,6 +1044,7 @@ summary(gam5)
 anova(gam5)
 capture.output(anova(gam5), file = "tables/GAM5.txt")
 
+
 # figure 5b ---------------------------------------------------------------
 
 ## model
@@ -1437,4 +1440,72 @@ ggsave("figures/figureS2.jpg", p_grid2,
 
 # figure S3 ---------------------------------------------------------------
 
-## requires additional packages - not included
+## only complete cases
+data_recr_sub = data_recr[complete.cases(color_score_median, colour_score_median_midparent)]
+
+## pedigree file
+data_pedigree_sub = data.table(
+  animal=data_recr_sub$ring,
+  sire=data_recr_sub$ring_m,
+  dam=data_recr_sub$ring_f
+)
+
+## add founders
+all_animals <- data_pedigree_sub$animal
+all_parents <- unique(c(data_pedigree_sub$sire, data_pedigree_sub$dam))
+all_parents <- all_parents[!is.na(all_parents)]  # remove NAs
+missing_parents <- setdiff(all_parents, all_animals)
+if (length(missing_parents) > 0) {
+  missing_rows <- data.table(
+    animal = missing_parents,
+    sire = NA_integer_,
+    dam = NA_integer_
+  )
+  data_pedigree_sub <- rbind(data_pedigree_sub, missing_rows, fill=T)
+}
+
+data_pedigree_sub[,animal := factor(animal)]
+
+## fixing + proper ordering 
+data_pedigree_sub_ext = merge(data_pedigree_sub, unique(data_ind[, .(ring, sex, morph)]), by.x = "animal", by.y="ring", all.x=T)
+data_pedigree_sub = data.table(with(data_pedigree_sub_ext, kinship2::fixParents(animal, sire, dam, sex)))
+data_pedigree_sub = MasterBayes::orderPed(data_pedigree_sub)
+setnames(data_pedigree_sub, c("animal", "dam", "sire", "sex"))
+data_pedigree_sub_ext = MasterBayes::orderPed(data_pedigree_sub_ext)
+data_pedigree_sub_ext[, sex:= data_pedigree_sub$sex ]
+
+
+## extended pedigree with sex and morph
+data_pedigree_sub_ext$id = NA
+data_pedigree_sub_ext$affected = 1
+ped_plot <- with(data_pedigree_sub_ext, kinship2::pedigree(
+  id = animal,
+  dadid = sire,
+  momid = dam,
+  sex = sex,
+  affected = affected,
+))
+
+## mean depth of pedigree
+depths <- kinship2::kindepth(ped_plot)
+summary(depths)
+
+jpeg("figures/figureS3.jpg", width = 5500, height = 1400, res = 150)
+plot(ped_plot,
+     col = morph_cols[data_pedigree_sub_ext$morph], 
+     id = data_pedigree_sub_ext$id,
+     mar = c(5,5,7,5),
+)
+title("Pedigree of tawny owls (1980-2022, complete records only)",
+      cex.main=3, adj = 0)
+legend(x = 100, y = 8,                         
+       legend = c("  Male (gray)", "  Male (brown)", 
+                  "  Female (gray)", "  Female (brown)"), 
+       pch = c(15, 15, 16, 16),                
+       pt.bg = rep(morph_cols, each = 2),      
+       col = c("gray", "chocolate4", "gray", "chocolate4"),                     
+       pt.cex = 5,        
+       cex = 2,
+       bty = "n",
+       y.intersp = 4)                        
+dev.off()
