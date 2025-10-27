@@ -160,12 +160,8 @@ ggsave(paste0("figures/figure1b.png"),
 
 data = copy(data_ind)
 data = data[order(year, laying_date)]
-data[!is.na(laying_date), laying_date_pos := laying_date - min(laying_date) + 1]
-data[, laying_date_seq := match(laying_date_pos, sort(unique(laying_date_pos))), by = year]
-data[!is.na(laying_date), time := paste0(year,"-",laying_date_seq)]
-data[, time := as.numeric(factor(time, levels=unique(time)))]
-data[, year_index := year - min(year) + 1]
-data[,ring:=factor(ring)]
+
+data[, year_index := year]
 
 ## color score
 gam1 = gam(color_score_median_trans_ord ~ morph + 
@@ -190,7 +186,6 @@ capture.output(anova(gamS2), file = "tables/GAMS2.txt")
 lm2 = glm(laying_date ~ year_index * morph, data=data[!is.na(laying_date)])
 capture.output(anova(lm2), file = "tables/LM2.txt")
 capture.output(summary(emtrends(lm2, specs = "morph", var = "year_index"), infer = c(TRUE, TRUE)), file = "tables/LM2_trend.txt")
-
 
 ## recruitment success
 gamS3 = gam(recr_success  ~ morph +
