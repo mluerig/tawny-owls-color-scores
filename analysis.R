@@ -94,8 +94,9 @@ D <- as.matrix(makeD(data_pedigree)$D)
 
 ## animal model data (not all vars are used)
 data_animal_mod = data_recr[, .(
-  ring, morph, sex, year, color_score_median, color_score_median_trans, 
-  parent_combination, colour_score_median_midparent, colour_score_median_midparent_trans)]
+  ring, morph, box, sex, year, laying_date, breed_snow_depth_mean, breed_snow_days_n, breed_temp_air_mean, breed_temp_air_CV, 
+  color_score_median, color_score_median_trans, parent_combination, colour_score_median_midparent, colour_score_median_midparent_trans)]
+data_animal_mod[, nest_id := factor(box)]
 data_animal_mod[, ring := factor(ring)]
 data_animal_mod[, dom := factor(ring, levels = rownames(D))]
 
@@ -160,8 +161,7 @@ ggsave(paste0("figures/figure1b.png"),
 
 data = copy(data_ind)
 data = data[order(year, laying_date)]
-
-data[, year_index := year]
+data[, year_index := year - 1979]
 
 ## color score
 gam1 = gam(color_score_median_trans_ord ~ morph + 
@@ -470,22 +470,28 @@ h2_1 <- VA / (VA + VR)
 h2_1
 capture.output(summary(am1), file = "tables/AM1.txt")
 
-## additive variance component as random effect and fixed effects for additive and dominace 
-## genotype-based effect size of dominance (interpretable effect of heterozygotes).
+##full animal model (AM2) includes environmental covariates
 am2 <- mmes(
-  color_score_median ~ geno_add + geno_dom,
-  random=~vsm(ism(ring),Gu=A),
+  color_score_median ~ geno_add + geno_dom + breed_snow_depth_mean + breed_snow_days_n + breed_temp_air_mean + breed_temp_air_CV,
+  random=~vsm(ism(ring),Gu=A) + vsm(ism(nest_id)),
   rcov=~units,
   data=data_animal_mod
 )
 
-vcomp <- summary(am2)$varcomp
-VA <- vcomp[1, "VarComp"]
-VR <- vcomp[2, "VarComp"]
-h2_2 <- VA / (VA + VR)
 summary(am2)
+VC <- summary(am2)$varcomp
+
+Va <- VC["ring", "VarComp"]
+Vec <- VC["nest_id", "VarComp"]
+Ve <- VC["units", "VarComp"]
+
+h2_2 <- Va / (Va + Vec + Ve)
 h2_2
 capture.output(summary(am2), file = "tables/AM2.txt")
+
+ce2_2 <- Vec / (Va + Vec + Ve)
+ce2_2
+
 
 ## evaluation
 AIC1    <- summary(am1)$logo["Value", "AIC"]
@@ -498,8 +504,6 @@ AIC_table <- data.frame(
   
 )
 AIC_table
-
-residuals(am2)
 
 ## residuals over time
 data_animal_mod[, year_index := year - min(year) + 1]
@@ -747,9 +751,18 @@ capture.output(anova(gam4), file = "tables/GAM4.txt")
 
 
 
-# figure 4b-d ------------------------------------------------------------------
+# figure 4b ------------------------------------------------------------------
 
-mod = copy(gam3)
+## model name
+mod = copy(gam2)
+
+## variables
+dep_var = "color_score_median_trans_ord"
+varx = "winter_temp_air_mean"
+vary = "winter_snow_days_n"
+
+## categorical variable
+var_cat = "morph"
 
 ## give extra prediction-range, in percent
 extra_range_x_left = 0
@@ -757,20 +770,111 @@ extra_range_x_right = 0
 extra_range_y_top = 0
 extra_range_y_bottom = 0
 
-# ## variables
-# dep_var = "color_score_median_trans_ord"
-# varx = "winter_temp_air_mean"
-# vary = "winter_snow_days_n"
+## 3d props
+n_gridlines = 25
+too_far_val = 0.333
+theta_val = 315 - 270
+phi_val = 35
+distance = 1000
+alpha_val = 1
+point_size = 1.25
 
+# generate range of mod data
+data_mod = data.table(copy(mod$model[, c(vary, varx, dep_var, "morph")]))
+setnames(data_mod, c(varx, vary), c("varx", "vary"))
+vars = list(seq(min(data_mod$varx) - (max(abs(data_mod$varx))/n_gridlines)*extra_range_x_left, 
+                max(data_mod$varx) + (max(abs(data_mod$varx))/n_gridlines)*extra_range_x_right, length.out = n_gridlines), 
+            seq(min(data_mod$vary) - (max(abs(data_mod$vary))/n_gridlines)*extra_range_y_bottom, 
+                max(data_mod$vary) + (max(abs(data_mod$vary))/n_gridlines)*extra_range_y_top, length.out = n_gridlines),
+            c("gray","brown"))
+data_new = data.table(expand.grid(vars))
+setnames(data_new, c(varx, vary, var_cat))
+data_new[, predicted := predict.gam(mod, data_new, type= "response")]
+
+## reduce to data-range
+for(i in unique(data_mod[[var_cat]])){
+  too_far_res = exclude.too.far(
+    data_new[c(data_new[,..var_cat]==i),][[varx]],
+    data_new[c(data_new[,..var_cat]==i),][[vary]],
+    data[c(data[,..var_cat]==i),][[varx]], 
+    data[c(data[,..var_cat]==i),][[vary]],
+    too_far_val)
+  data_new[c(data_new[,..var_cat]==i), too_far := too_far_res
+  ]
+}
+# & predicted <= 5
+data_new[too_far==FALSE, predicted_filter := predicted]
+
+
+## figure panel
+dims = 2500
+png(paste0("figures/figure4b.png"), width=dims, height=dims, unit="px", res=400, bg="white")
+par(mfrow=c(1,1), mar = c(2,2,2,1))
+z_orig = data_mod[[dep_var]]
+x_orig = data_mod$varx
+y_orig = data_mod$vary 
+
+xlow =  min(data_mod$varx)
+xupp =  max(data_mod$varx)
+ylow =  min(data_mod$vary)
+yupp =  max(data_mod$vary)
+
+bg_cols = morph_cols[data_mod$morph]
+
+scatter3D(x=x_orig, y=y_orig, z=z_orig, 
+          ticktype = "detailed", 
+          # main = "All years", 
+          cex.main=2, colkey=FALSE,font.main = 1,
+          col="black",   pch=21, lwd=0, bg = bg_cols, cex=0, cex.lab=1.5, 
+          bty = "b2", box=T, #type = "h",
+          phi = phi_val, theta = theta_val, r=distance, 
+          zlim=c(1,5),
+          ylab="Snow days (N)",
+          xlab="Air temp. (Mean)",
+          zlab="Color score")
+
+data_sub = data_new[morph=="brown",]
+z = data_sub$predicted_filter
+x = data_sub[[varx]]
+y = data_sub[[vary]]
+surf3D(x=matrix(x, n_gridlines, n_gridlines, byrow=T),
+       y=matrix(y, n_gridlines, n_gridlines, byrow=T),
+       z=matrix(z, n_gridlines, n_gridlines, byrow=T),
+       border="black", alpha=alpha_val,
+       col=morph_cols["brown"], NAcol=morph_cols["brown"],
+       add=TRUE)
+
+data_sub = data_new[morph=="gray",]
+z = data_sub$predicted_filter
+x = data_sub[[varx]]
+y = data_sub[[vary]]
+surf3D(x=matrix(x, n_gridlines, n_gridlines, byrow=T),
+       y=matrix(y, n_gridlines, n_gridlines, byrow=T),
+       z=matrix(z, n_gridlines, n_gridlines, byrow=T),
+       border="black", alpha=alpha_val,
+       col=morph_cols["gray"], NAcol=morph_cols["gray"],
+       add=TRUE)
+
+dev.off()
+
+# figure 4c ------------------------------------------------------------------
+
+## model name
+mod = copy(gam3)
+
+## variables
 dep_var = "laying_date"
 varx = "winter_temp_air_mean"
 vary = "color_score_median_trans_ord"
 
-# dep_var = "recr_success"
-# vary = "color_score_median_trans_ord"
-# varx = "laying_date"
-
+## categorical variable
 var_cat = "morph"
+
+## give extra prediction-range, in percent
+extra_range_x_left = 0
+extra_range_x_right = 0
+extra_range_y_top = 0
+extra_range_y_bottom = 0
 
 ## 3d props
 n_gridlines = 25
@@ -830,29 +934,15 @@ scatter3D(x=x_orig, y=y_orig, z=z_orig,
           col="black",   pch=21, lwd=0, bg = bg_cols, cex=0, cex.lab=1.5, 
           bty = "b2", box=T, #type = "h",
           phi = phi_val, theta = theta_val, r=distance, 
-          # zlim=c(2,5),
           zlim=c(-20,20),
-          # zlim=c(0,0.5),
-          # xlim=c(xlow, 2),
-          # ylim=c(0, yupp),
-          # zlab="\nColor score (predicted)",
-          # xlab="Air temp. (Mean)",
-          # ylab="Snow days (N)")
-          zlab="\nLaying date (predicted)",
+          zlab="Laying date",
           xlab="Air temp. (Mean)",
           ylab="Color score")
-          # zlab="\nRecruitment success (predicted)",
-          # xlab="Laying date",
-          # ylab="Color score")
-
-
 
 data_sub = data_new[morph=="brown",]
-
 z = data_sub$predicted_filter
 x = data_sub[[varx]]
 y = data_sub[[vary]]
-
 surf3D(x=matrix(x, n_gridlines, n_gridlines, byrow=T),
        y=matrix(y, n_gridlines, n_gridlines, byrow=T),
        z=matrix(z, n_gridlines, n_gridlines, byrow=T),
@@ -861,11 +951,9 @@ surf3D(x=matrix(x, n_gridlines, n_gridlines, byrow=T),
        add=TRUE)
 
 data_sub = data_new[morph=="gray",]
-
 z = data_sub$predicted_filter
 x = data_sub[[varx]]
 y = data_sub[[vary]]
-
 surf3D(x=matrix(x, n_gridlines, n_gridlines, byrow=T),
        y=matrix(y, n_gridlines, n_gridlines, byrow=T),
        z=matrix(z, n_gridlines, n_gridlines, byrow=T),
@@ -873,11 +961,118 @@ surf3D(x=matrix(x, n_gridlines, n_gridlines, byrow=T),
        col=morph_cols["gray"], NAcol=morph_cols["gray"],
        add=TRUE)
 
+dev.off()
+
+# figure 4d ------------------------------------------------------------------
+
+## model name
+mod = copy(gam4)
+
+## variables
+dep_var = "recr_success"
+vary = "color_score_median_trans_ord"
+varx = "laying_date"
+
+## categorical variable
+var_cat = "morph"
+
+## give extra prediction-range, in percent
+extra_range_x_left = 0
+extra_range_x_right = 0
+extra_range_y_top = 0
+extra_range_y_bottom = 0
+
+## 3d props
+n_gridlines = 25
+too_far_val = 0.333
+theta_val = 315 - 270
+phi_val = 35
+distance = 1000
+alpha_val = 1
+point_size = 1.25
+
+# generate range of mod data
+data_mod = data.table(copy(mod$model[, c(vary, varx, dep_var, "morph")]))
+setnames(data_mod, c(varx, vary), c("varx", "vary"))
+vars = list(seq(min(data_mod$varx) - (max(abs(data_mod$varx))/n_gridlines)*extra_range_x_left, 
+                max(data_mod$varx) + (max(abs(data_mod$varx))/n_gridlines)*extra_range_x_right, length.out = n_gridlines), 
+            seq(min(data_mod$vary) - (max(abs(data_mod$vary))/n_gridlines)*extra_range_y_bottom, 
+                max(data_mod$vary) + (max(abs(data_mod$vary))/n_gridlines)*extra_range_y_top, length.out = n_gridlines),
+            c("gray","brown"))
+data_new = data.table(expand.grid(vars))
+setnames(data_new, c(varx, vary, var_cat))
+data_new[, predicted := predict.gam(mod, data_new, type= "response")]
+
+## reduce to data-range
+for(i in unique(data_mod[[var_cat]])){
+  too_far_res = exclude.too.far(
+    data_new[c(data_new[,..var_cat]==i),][[varx]],
+    data_new[c(data_new[,..var_cat]==i),][[vary]],
+    data[c(data[,..var_cat]==i),][[varx]], 
+    data[c(data[,..var_cat]==i),][[vary]],
+    too_far_val)
+  data_new[c(data_new[,..var_cat]==i), too_far := too_far_res
+  ]
+}
+# & predicted <= 5
+data_new[too_far==FALSE, predicted_filter := predicted]
+
+
+## figure panel
+dims = 2500
+png(paste0("figures/figure4d.png"), width=dims, height=dims, unit="px", res=400, bg="white")
+par(mfrow=c(1,1), mar = c(2,2,2,1))
+z_orig = data_mod[[dep_var]]
+x_orig = data_mod$varx
+y_orig = data_mod$vary 
+
+xlow =  min(data_mod$varx)
+xupp =  max(data_mod$varx)
+ylow =  min(data_mod$vary)
+yupp =  max(data_mod$vary)
+
+bg_cols = morph_cols[data_mod$morph]
+
+scatter3D(x=x_orig, y=y_orig, z=z_orig, 
+          ticktype = "detailed", 
+          # main = "All years", 
+          cex.main=2, colkey=FALSE,font.main = 1,
+          col="black",   pch=21, lwd=0, bg = bg_cols, cex=0, cex.lab=1.5, 
+          bty = "b2", box=T, #type = "h",
+          phi = phi_val, theta = theta_val, r=distance, 
+          zlim=c(0,0.5),
+          zlab="\nLaying date (predicted)",
+          xlab="Air temp. (Mean)",
+          ylab="Color score")
+# zlab="\nRecruitment success (predicted)",
+# xlab="Laying date",
+# ylab="Color score")
+
+data_sub = data_new[morph=="brown",]
+z = data_sub$predicted_filter
+x = data_sub[[varx]]
+y = data_sub[[vary]]
+surf3D(x=matrix(x, n_gridlines, n_gridlines, byrow=T),
+       y=matrix(y, n_gridlines, n_gridlines, byrow=T),
+       z=matrix(z, n_gridlines, n_gridlines, byrow=T),
+       border="black", alpha=alpha_val,
+       col=morph_cols["brown"], NAcol=morph_cols["brown"],
+       add=TRUE)
+
+data_sub = data_new[morph=="gray",]
+z = data_sub$predicted_filter
+x = data_sub[[varx]]
+y = data_sub[[vary]]
+surf3D(x=matrix(x, n_gridlines, n_gridlines, byrow=T),
+       y=matrix(y, n_gridlines, n_gridlines, byrow=T),
+       z=matrix(z, n_gridlines, n_gridlines, byrow=T),
+       border="black", alpha=alpha_val,
+       col=morph_cols["gray"], NAcol=morph_cols["gray"],
+       add=TRUE)
 
 dev.off()
 
-
-# figure 4a stats ---------------------------------------------------------
+# figure 5a stats ---------------------------------------------------------
 
 
 data = copy(data_recr)
@@ -931,7 +1126,7 @@ fwrite(data_results, "tables/SEM2.txt")
 # write(paste(utils::capture.output(data.frame(data_results)),
 # collapse = "\n"), file = "tables/SEM1.txt")
 
-# figure 4a -------------------------------------------------------------------
+# figure 5a -------------------------------------------------------------------
 
 # Extract path estimates
 mod_est <- data.table(parameterEstimates(fitH2, standardized = TRUE))
@@ -980,7 +1175,7 @@ mod_est[, mar := ifelse(pvalue < sig_lvl, 0.01, 0)]
 mod_est[, asize := 3]
 mod_est[pvalue < sig_lvl, asize := pmax(abs(std.all) * 10, 5)]
 
-png("figures/figure4a.png", width = 20, height = 12.5, units = 'cm', res = 400)
+png("figures/figure5a.png", width = 20, height = 12.5, units = 'cm', res = 400)
 qgraph(input=mod_est[,c("dependent", "independent")],
        shape="rectangle",
        layout=rbind(c(3,8), #  paternal morph
@@ -1101,7 +1296,7 @@ y_orig = data_mod$vary
 
 bg_cols = morph_cols[as.character(data_mod$morph)]
 dims = 2500
-png(paste0("figures/figure4b.png"), width=dims, height=dims, unit="px", res=400, bg="white")
+png(paste0("figures/figure5b.png"), width=dims, height=dims, unit="px", res=400, bg="white")
 par(mar=c(3,3,3,3))
 scatter3D(x=x_orig , y=y_orig, z=z_orig,
           ticktype = "detailed", 
@@ -1216,7 +1411,7 @@ x_orig = data_mod$varx
 y_orig = data_mod$vary
 
 bg_cols = morph_cols[as.character(data_mod$morph)]
-png(paste0("figures/figure4c.png"), width=2750, height=2750, unit="px", res=400, bg="white")
+png(paste0("figures/figure5c.png"), width=2750, height=2750, unit="px", res=400, bg="white")
 par(mar=c(3,3,3,3))
 scatter3D(x=x_orig , y=y_orig, z=z_orig,
           ticktype = "detailed", 
