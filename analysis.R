@@ -102,9 +102,9 @@ D <- as.matrix(makeD(data_pedigree)$D)
 
 ## animal model data (not all vars are used)
 data_animal_mod = data_recr[, .(
-  ring, morph, box, sex, year, laying_date, breed_snow_depth_mean, breed_snow_days_n, breed_temp_air_mean, breed_temp_air_CV, 
+  ring, morph, nest_id, sex, year, laying_date, breed_snow_depth_mean, breed_snow_days_n, breed_temp_air_mean, breed_temp_air_CV, 
   color_score_median, color_score_median_trans, parent_combination, colour_score_median_midparent, colour_score_median_midparent_trans)]
-data_animal_mod[, nest_id := factor(box)]
+data_animal_mod[, nest_id := factor(nest_id)]
 data_animal_mod[, ring := factor(ring)]
 data_animal_mod[, dom := factor(ring, levels = rownames(D))]
 
