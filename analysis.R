@@ -1,4 +1,4 @@
-# 00 - setup --------------------------------------------------------------
+# 00a - setup --------------------------------------------------------------
 
 # devtools::install_github("https://github.com/alishinski/lavaanPlot/tree/dir")
 # devtools::install_github("Sebastien-Le/YesSiR")
@@ -31,7 +31,13 @@ outlier_mad <- function(x, threshold = 3) {
   abs(mad_deviate) > threshold
 }
 
+
+# 00b - set WD ------------------------------------------------------------------
+
 setwd("D:/git-repos/data-repos/tawny-owls-color-scores")
+
+dir.create("figures")
+dir.create("tables")
 
 # 01 - define variables ---------------------------------------------------
 
@@ -56,17 +62,19 @@ col_score_labs = c(
 # 02 - load and format data -----------------------------------------------
 
 ## load invidiuals data
-data_ind = fread("data/data_individuals.csv", na.strings = "", stringsAsFactors = T)
+data_ind = fread("data/data_individuals_clean_env_masked.csv", na.strings = "", stringsAsFactors = T)
 data_ind[, morph := factor(morph, levels=c("gray","brown"))]
 data_ind[, ring := factor(ring)]
 data_ind[, couple_id := factor(couple_id)]
+data_ind[, nest_id := factor(nest_id)]
+data_ind[, year_index := year - min(year) + 1]
 data_ind = copy(data_ind[year >= 1980,])
 
 ## unique data - ring only appears on first occurence 
 data_ind_uni = data_ind[!duplicated(ring),] 
 
 ## load recruits file
-data_recr = fread("data/data_recruits.csv", stringsAsFactors = T)
+data_recr = fread("data/data_recruits_env_masked.csv", stringsAsFactors = T)
 data_recr[, morph := factor(morph, levels=c("gray","brown"))]
 data_recr[, parent_combination := factor(
   parent_combination, levels=c("gray_gray","gray_brown", "brown_gray","brown_brown"))]
@@ -160,8 +168,6 @@ ggsave(paste0("figures/figure1b.png"),
  # figure 2 stats ----------------------------------------------------------------
 
 data = copy(data_ind)
-data = data[order(year, laying_date)]
-data[, year_index := year - 1979]
 
 ## color score
 gam1 = gam(color_score_median_trans_ord ~ morph + 
@@ -458,19 +464,25 @@ capture.output(summary(por1_gls), file = "tables/GLS_POR1.txt")
 ## -> baseline heritability under a purely additive-only model.
 am1 <- mmes(
   color_score_median ~ 1,
-  random=~vsm(ism(ring),Gu=A),
+  random=~vsm(ism(ring),Gu=A) + vsm(ism(nest_id)),
   rcov=~units,
   data=data_animal_mod
 )
-
-vcomp <- summary(am1)$varcomp
-VA <- vcomp[1, "VarComp"]
-VR <- vcomp[2, "VarComp"]
-h2_1 <- VA / (VA + VR)
+summary(am1)
+VC <- summary(am1)$varcomp
+Va <- VC["ring", "VarComp"]
+Vec <- VC["nest_id", "VarComp"]
+Ve <- VC["units", "VarComp"]
+h2_1 <- Va / (Va + Vec + Ve)
 h2_1
+ce2_1 <- Vec / (Va + Vec + Ve)
+ce2_1
+
 capture.output(summary(am1), file = "tables/AM1.txt")
 
-##full animal model (AM2) includes environmental covariates
+## additive variance component and nest id as random effects and fixed effects for additive and dominance,
+## and four key environmental variables                                                                            
+## genotype-based effect size of dominance (interpretable effect of heterozygotes).
 am2 <- mmes(
   color_score_median ~ geno_add + geno_dom + breed_snow_depth_mean + breed_snow_days_n + breed_temp_air_mean + breed_temp_air_CV,
   random=~vsm(ism(ring),Gu=A) + vsm(ism(nest_id)),
@@ -480,18 +492,14 @@ am2 <- mmes(
 
 summary(am2)
 VC <- summary(am2)$varcomp
-
 Va <- VC["ring", "VarComp"]
 Vec <- VC["nest_id", "VarComp"]
 Ve <- VC["units", "VarComp"]
-
 h2_2 <- Va / (Va + Vec + Ve)
 h2_2
-capture.output(summary(am2), file = "tables/AM2.txt")
-
 ce2_2 <- Vec / (Va + Vec + Ve)
 ce2_2
-
+capture.output(summary(am2), file = "tables/AM2.txt")
 
 ## evaluation
 AIC1    <- summary(am1)$logo["Value", "AIC"]
@@ -567,6 +575,7 @@ ggsave("figures/figure3b.png",p2,width = 10, height = 15, units = 'cm', bg="whit
 # figure 4a stats ----------------------------------------------------------
 
 data = copy(data_ind)
+data = data[!is.na(laying_date),]
 data[, laying_date_outlier := outlier_mad(laying_date, threshold = 3), by=morph]
 data = data[laying_date_outlier == F,]
 data[, morph_num := ifelse(morph=="gray",0,1)]
@@ -705,6 +714,7 @@ dev.off()
 # figure 4b-d stats --------------------------------------------------------------
 
 data = copy(data_ind)
+data = data[!is.na(laying_date),]
 data[, laying_date_outlier := outlier_mad(laying_date, threshold = 3), by=morph]
 data = data[laying_date_outlier == F,]
 
@@ -758,8 +768,8 @@ mod = copy(gam2)
 
 ## variables
 dep_var = "color_score_median_trans_ord"
-varx = "winter_temp_air_mean"
-vary = "winter_snow_days_n"
+vary = "winter_temp_air_mean"
+varx = "winter_snow_days_n"
 
 ## categorical variable
 var_cat = "morph"
@@ -802,8 +812,8 @@ for(i in unique(data_mod[[var_cat]])){
   data_new[c(data_new[,..var_cat]==i), too_far := too_far_res
   ]
 }
-# & predicted <= 5
-data_new[too_far==FALSE, predicted_filter := predicted]
+# 
+data_new[too_far==FALSE & predicted <= 6, predicted_filter := predicted]
 
 
 ## figure panel
@@ -823,14 +833,13 @@ bg_cols = morph_cols[data_mod$morph]
 
 scatter3D(x=x_orig, y=y_orig, z=z_orig, 
           ticktype = "detailed", 
-          # main = "All years", 
           cex.main=2, colkey=FALSE,font.main = 1,
           col="black",   pch=21, lwd=0, bg = bg_cols, cex=0, cex.lab=1.5, 
           bty = "b2", box=T, #type = "h",
           phi = phi_val, theta = theta_val, r=distance, 
-          zlim=c(1,5),
-          ylab="Snow days (N)",
-          xlab="Air temp. (Mean)",
+          zlim=c(0,5), xlim=c(0,180), ylim=c(-4,2),
+          xlab="Snow days (N)",
+          ylab="Air temp. (Mean)",
           zlab="Color score")
 
 data_sub = data_new[morph=="brown",]
@@ -1041,7 +1050,7 @@ scatter3D(x=x_orig, y=y_orig, z=z_orig,
           bty = "b2", box=T, #type = "h",
           phi = phi_val, theta = theta_val, r=distance, 
           zlim=c(0,0.5),
-          zlab="\nLaying date (predicted)",
+          zlab="\nRecruitment success (predicted)",
           xlab="Air temp. (Mean)",
           ylab="Color score")
 # zlab="\nRecruitment success (predicted)",
